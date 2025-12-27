@@ -23,7 +23,7 @@ services:
 
   tests:
     <<: *devbox
-    command: "python -m unittest tests"
+    command: "python -m unittest tests.tests"
 
   lock-requirements:
     <<: *devbox

@@ -376,6 +376,131 @@ class LoginMixin(PreLoginFlowMixin, PostLoginFlowMixin):
         self.cookie_dict["ds_user_id"] = user.pk
         return True
 
+    def login_by_cookie(self, cookie_string: str) -> bool:
+        """
+        Login using browser cookie string (supports any cookie format from desktop/mobile browsers)
+
+        This method parses cookie strings from browser DevTools and extracts sessionid, mid, and other
+        Instagram cookies. It follows the "gradual migration" strategy (方案D) where Instagram server
+        will naturally update device fingerprints (like mid) in subsequent requests.
+
+        Parameters
+        ----------
+        cookie_string: str
+            Raw cookie string from browser (e.g. "sessionid=xxx; mid=yyy; csrftoken=zzz")
+            Supports formats:
+            - Standard: "key1=value1; key2=value2"
+            - With quotes: "key1=\"value1\"; key2=\"value2\""
+            - With escaped characters: "rur=\"VLL\\054312488908\\054...\""
+
+        Returns
+        -------
+        bool
+            A boolean value indicating success
+
+        Raises
+        ------
+        ValueError
+            If sessionid is not found in cookie string or is invalid
+
+        Examples
+        --------
+        >>> cl = Client()
+        >>> cookie = 'sessionid=12345%3Axx%3A27%3A...; mid=YYY; ds_user_id=12345'
+        >>> cl.login_by_cookie(cookie)
+        >>> print(f"Logged in as: {cl.username}")
+        """
+        if not isinstance(cookie_string, str) or not cookie_string.strip():
+            raise ValueError("Cookie string cannot be empty")
+
+        # Parse cookie string into dictionary
+        cookies = {}
+        for cookie_pair in cookie_string.split(';'):
+            cookie_pair = cookie_pair.strip()
+            if not cookie_pair or '=' not in cookie_pair:
+                continue
+
+            # Split only on first '=' to handle values containing '='
+            key, value = cookie_pair.split('=', 1)
+            key = key.strip()
+            value = value.strip()
+
+            # Remove surrounding quotes if present
+            if value.startswith('"') and value.endswith('"'):
+                value = value[1:-1]
+
+            # Unescape common escape sequences (e.g., \054 -> ,)
+            value = value.replace('\\054', ',')
+
+            cookies[key] = value
+
+        # Validate sessionid exists
+        if 'sessionid' not in cookies:
+            raise ValueError(
+                "No 'sessionid' found in cookie string. "
+                "Please copy cookies from browser DevTools (Application -> Cookies -> instagram.com)"
+            )
+
+        sessionid = cookies['sessionid']
+        if len(sessionid) < 30:
+            raise ValueError(f"Invalid sessionid length: {len(sessionid)} (expected > 30)")
+
+        # Extract user_id from sessionid (format: "user_id%3A..." or "user_id:...")
+        user_id_match = re.search(r'^(\d+)', sessionid)
+        if not user_id_match:
+            raise ValueError(
+                f"Cannot extract user_id from sessionid. "
+                f"Expected format: 'USERID%3A...' or 'USERID:...', got: {sessionid[:50]}..."
+            )
+        user_id = user_id_match.group(1)
+
+        # Set cookies to settings (will be loaded in init())
+        self.settings["cookies"] = cookies
+        self.init()
+
+        # Build authorization_data
+        self.authorization_data = {
+            "ds_user_id": user_id,
+            "sessionid": sessionid,
+            "should_use_header_over_cookies": True,
+        }
+
+        # Set mid if present in cookies (preserves browser fingerprint)
+        # Instagram will update this to mobile-compatible value in subsequent requests
+        if 'mid' in cookies:
+            self.mid = cookies['mid']
+            self.logger.info(f"Using browser mid: {self.mid}")
+
+        # Set ig_did if present (Instagram Device ID from browser)
+        if 'ig_did' in cookies:
+            self.logger.info(f"Found ig_did in cookies: {cookies['ig_did']}")
+
+        # Validate session by fetching user info
+        try:
+            user = self.user_info_v1(int(user_id))
+        except (PrivateError, ValidationError) as e:
+            self.logger.warning(f"user_info_v1 failed ({e}), trying user_short_gql")
+            try:
+                user = self.user_short_gql(int(user_id))
+            except Exception as gql_error:
+                raise ValueError(
+                    f"Failed to validate session. The cookie may be expired or invalid. "
+                    f"Error: {gql_error}"
+                ) from gql_error
+
+        # Set user info
+        self.username = user.username
+        self.cookie_dict["ds_user_id"] = user.pk
+
+        self.logger.info(
+            f"Successfully logged in as @{self.username} (ID: {self.user_id}) using browser cookies"
+        )
+        self.logger.info(
+            "Device fingerprint will be gradually updated by Instagram server in subsequent requests"
+        )
+
+        return True
+
     def login(
         self,
         username: Union[str, None] = None,

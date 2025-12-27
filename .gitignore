@@ -33,6 +33,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+temp/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -140,5 +141,6 @@ dmypy.json
 *.iml
 
 # VSCode
-.vscode
+# .vscode
 ig_settings.json
+settings.local.json

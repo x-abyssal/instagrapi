@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-python -m unittest tests.FakeClientTestCase tests.ClientPublicTestCase
+python -m unittest tests.tests.FakeClientTestCase tests.tests.ClientPublicTestCase
 
 echo "Running isort..."
 isort ${ISORT_ACTION} instagrapi

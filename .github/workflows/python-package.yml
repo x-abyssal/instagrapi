@@ -83,19 +83,19 @@ jobs:
           requirements: "true"
           test-requirements: "true"
       - name: Run media test
-        run: pytest -sv tests.py::ClientMediaTestCase
+        run: pytest -sv tests/tests.py::ClientMediaTestCase
       - name: Run user test
-        run: pytest -sv tests.py::ClientUserTestCase
+        run: pytest -sv tests/tests.py::ClientUserTestCase
       # - name: Run comment test
-      #   run: pytest -sv tests.py::ClientCommentTestCase
+      #   run: pytest -sv tests/tests.py::ClientCommentTestCase
       # - name: Run location test
-      #   run: pytest -sv tests.py::ClientLocationTestCase
+      #   run: pytest -sv tests/tests.py::ClientLocationTestCase
       # - name: Run hashtag test
-      #   run: pytest -sv tests.py::ClientHashtagTestCase
+      #   run: pytest -sv tests/tests.py::ClientHashtagTestCase
       # - name: Run share test
-      #   run: pytest -sv tests.py::ClientShareTestCase
+      #   run: pytest -sv tests/tests.py::ClientShareTestCase
       # - name: Run highlight test
-      #   run: pytest -sv tests.py::ClientHighlightTestCase
+      #   run: pytest -sv tests/tests.py::ClientHighlightTestCase
 
   build-docs:
     runs-on: ubuntu-latest

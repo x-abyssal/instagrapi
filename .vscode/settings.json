@@ -1,0 +1,15 @@
+{
+    "editor.tabSize": 4,
+    "editor.formatOnSave": true,
+    "explorer.autoReveal": false,
+    "search.exclude": {
+        "**/__pycache__": true,
+        "/browser_data": true,
+        "/data": true,
+        "/temp": true
+    },
+    "editor.quickSuggestions": {
+        "strings": true
+    },
+    "editor.stickyScroll.enabled": false
+}
