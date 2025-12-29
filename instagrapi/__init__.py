@@ -98,6 +98,7 @@ class Client(
         proxy: str | None = None,
         delay_range: list | None = None,
         logger=DEFAULT_LOGGER,
+        session_dir: str | None = None,
         **kwargs,
     ):
 
@@ -106,6 +107,7 @@ class Client(
         self.settings = settings
         self.logger = logger
         self.delay_range = delay_range
+        self.session_dir = session_dir
 
         self.set_proxy(proxy)
 

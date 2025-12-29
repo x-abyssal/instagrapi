@@ -270,14 +270,21 @@ class PublicRequestMixin:
                 return_json=True,
             )
 
-            if body_json.get("status", None) != "ok":
-                raise ClientGraphqlError(
-                    "Unexpected status '{}' in response. Message: '{}'".format(
-                        body_json.get("status", None), body_json.get("message", None)
-                    ),
-                    response=body_json,
-                )
-
+            not_ok = body_json.get("status", None) != "ok"
+            no_data = "data" not in body_json
+            if not_ok or no_data:
+                if not_ok:
+                    raise ClientGraphqlError(
+                        "Unexpected status '{}' in response. Message: '{}'".format(
+                            body_json.get("status", None), body_json.get("message", None)
+                        ),
+                        response=body_json,
+                    )
+                else:
+                    raise ClientGraphqlError(
+                        "No Data in response, Error Message:''".format(body_json.get("error", None)),
+                        response=body_json,
+                    )
             return body_json["data"]
 
         except ClientBadRequestError as e:

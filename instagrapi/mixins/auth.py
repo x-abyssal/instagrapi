@@ -7,7 +7,7 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, List, Union
 from uuid import uuid4
 
 import requests
@@ -1030,3 +1030,264 @@ class LoginMixin(PreLoginFlowMixin, PostLoginFlowMixin):
         }
         headers = ";".join([f"{key}={value}" for key, value in headers.items()])
         return f"{self.username}:{self.password}|{self.user_agent}|{uuids}|{headers};||"
+
+    # Auto session management methods
+
+    def _load_index(self, session_dir: Path) -> Dict:
+        """
+        Load session index file
+
+        Args:
+            session_dir: Session root directory
+
+        Returns:
+            Index dictionary, empty dict if file doesn't exist
+        """
+        index_file = session_dir / "index.json"
+        if not index_file.exists():
+            return {}
+
+        try:
+            with open(index_file, "r") as fp:
+                return json.load(fp)
+        except (json.JSONDecodeError, IOError):
+            return {}
+
+    def _save_index(self, session_dir: Path, index: Dict) -> None:
+        """
+        Save session index file
+
+        Args:
+            session_dir: Session root directory
+            index: Index dictionary
+        """
+        index_file = session_dir / "index.json"
+        with open(index_file, "w") as fp:
+            json.dump(index, fp, indent=4)
+
+    def _update_index(
+        self,
+        session_dir: Path,
+        username: str,
+        user_id: str,
+        account_dir: str
+    ) -> None:
+        """
+        Update index file with username and user_id as keys
+
+        Args:
+            session_dir: Session root directory
+            username: Username
+            user_id: User ID
+            account_dir: Account subdirectory name
+        """
+        from datetime import datetime, timezone
+
+        index = self._load_index(session_dir)
+
+        entry = {
+            "username": username,
+            "user_id": user_id,
+            "session_dir": account_dir,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Use both username and user_id as keys
+        index[username] = entry
+        index[user_id] = entry
+
+        self._save_index(session_dir, index)
+
+    def _ensure_session_dir(self, session_dir: Union[str, Path, None]) -> Path:
+        """
+        Ensure session directory exists
+
+        Args:
+            session_dir: Session directory path, uses default if None
+
+        Returns:
+            Path object
+        """
+        if session_dir is None:
+            session_dir = getattr(self, 'session_dir', None) or Path("./sessions")
+
+        path = Path(session_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def auto_dump_settings(self, session_dir: Union[str, Path, None] = None) -> Path:
+        """
+        Automatically save session to directory structure
+
+        Args:
+            session_dir: Session root directory, defaults to self.session_dir or './sessions/'
+
+        Returns:
+            Path to saved settings.json file
+
+        Raises:
+            ValueError: When unable to get username or user_id
+
+        Example:
+            >>> cl = Client()
+            >>> cl.login(username="john_doe", password="pass")
+            >>> path = cl.auto_dump_settings()
+            >>> print(path)  # './sessions/john_doe/settings.json'
+        """
+        # 1. Determine root directory
+        session_dir_path = self._ensure_session_dir(session_dir)
+
+        # 2. Determine account subdirectory name (prefer username, fallback to user_id)
+        username = self.username if hasattr(self, 'username') and self.username else None
+        user_id = str(self.user_id) if self.user_id else None
+
+        if not username and not user_id:
+            raise ValueError(
+                "Cannot determine account directory: both username and user_id are unavailable. "
+                "Please login first."
+            )
+
+        # Prefer username, fallback to user_id
+        account_dir_name = username if username else user_id
+
+        # 3. Create account subdirectory
+        try:
+            account_dir = session_dir_path / account_dir_name
+            account_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # If username contains invalid characters, use user_id as fallback
+            if username and user_id:
+                account_dir_name = user_id
+                account_dir = session_dir_path / user_id
+                account_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                raise
+
+        # 4. Save settings to settings.json
+        filepath = account_dir / "settings.json"
+        settings = self.get_settings()
+
+        with open(filepath, "w") as fp:
+            json.dump(settings, fp, indent=4)
+
+        # 5. Update index file
+        if username and user_id:
+            self._update_index(session_dir_path, username, user_id, account_dir_name)
+
+        return filepath
+
+    def restore_settings(
+        self,
+        identifier: Union[str, int],
+        session_dir: Union[str, Path, None] = None
+    ) -> Dict:
+        """
+        Intelligently load session, supports username, user_id, or cookie string
+
+        Args:
+            identifier: username, user_id, or cookie string
+            session_dir: Session root directory
+
+        Returns:
+            Loaded settings dictionary
+
+        Raises:
+            FileNotFoundError: When session file cannot be found
+
+        Example:
+            >>> cl = Client()
+            >>> cl.restore_settings("john_doe")  # Load by username
+            >>> cl.restore_settings(123456789)   # Load by user_id
+            >>> cl.restore_settings("sessionid=123...")  # Load by cookie
+        """
+        session_dir_path = self._ensure_session_dir(session_dir)
+
+        # 1. Load index file
+        index = self._load_index(session_dir_path)
+
+        # 2. Check if it's a cookie string
+        if isinstance(identifier, str) and "sessionid=" in identifier:
+            # Parse cookie string to extract sessionid
+            match = re.search(r'sessionid=([^;]+)', identifier)
+            if match:
+                sessionid = match.group(1)
+                # Extract user_id from sessionid
+                user_id_match = re.search(r'^(\d+)', sessionid)
+                if user_id_match:
+                    identifier = user_id_match.group(1)  # Replace with user_id
+
+        # 3. Look up in index
+        identifier_str = str(identifier)
+        if identifier_str not in index:
+            raise FileNotFoundError(
+                f"No session found for identifier: {identifier} "
+                f"in directory: {session_dir_path}"
+            )
+
+        # 4. Get account directory and load settings
+        account_dir_name = index[identifier_str]["session_dir"]
+        filepath = session_dir_path / account_dir_name / "settings.json"
+
+        if not filepath.exists():
+            raise FileNotFoundError(
+                f"Session file not found: {filepath}"
+            )
+
+        # 5. Load settings
+        return self.load_settings(filepath)
+
+    @classmethod
+    def get_available_sessions(
+        cls,
+        session_dir: Union[str, Path] = "./sessions"
+    ) -> List[Dict]:
+        """
+        List all available sessions in directory
+
+        Args:
+            session_dir: Session root directory
+
+        Returns:
+            List of session information (deduplicated)
+
+        Example:
+            >>> sessions = Client.get_available_sessions("./sessions")
+            >>> for s in sessions:
+            ...     print(f"{s['username']} ({s['user_id']})")
+        """
+        session_dir_path = Path(session_dir)
+        if not session_dir_path.exists():
+            return []
+
+        # Load index file
+        index_file = session_dir_path / "index.json"
+        if not index_file.exists():
+            return []
+
+        try:
+            with open(index_file, "r") as fp:
+                index = json.load(fp)
+        except (json.JSONDecodeError, IOError):
+            return []
+
+        # Deduplicate: username and user_id point to same session_dir
+        seen_dirs = set()
+        sessions = []
+
+        for key, entry in index.items():
+            session_dir_name = entry["session_dir"]
+            if session_dir_name in seen_dirs:
+                continue  # Skip duplicate directories
+
+            seen_dirs.add(session_dir_name)
+            filepath = session_dir_path / session_dir_name / "settings.json"
+
+            sessions.append({
+                "username": entry.get("username"),
+                "user_id": entry.get("user_id"),
+                "session_dir": session_dir_name,
+                "saved_at": entry.get("saved_at"),
+                "filepath": filepath,
+            })
+
+        return sessions

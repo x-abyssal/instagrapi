@@ -16,7 +16,7 @@ class ClientError(Exception):
             )
         super().__init__(self.message, *args, **kwargs)
         if self.response:
-            self.code = self.response.status_code
+            self.code = self.response.get("status_code", None)
 
 
 class ClientUnknownError(ClientError):
