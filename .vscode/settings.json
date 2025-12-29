@@ -11,5 +11,6 @@
     "editor.quickSuggestions": {
         "strings": true
     },
-    "editor.stickyScroll.enabled": false
+    "editor.stickyScroll.enabled": false,
+    "claudeCode.disableLoginPrompt": true
 }
