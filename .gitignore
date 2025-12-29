@@ -144,3 +144,9 @@ dmypy.json
 # .vscode
 ig_settings.json
 settings.local.json
+
+# Test data
+test_sessions
+
+# Session data
+sessions/*.json
